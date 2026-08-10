@@ -1,6 +1,6 @@
 # claudex-setup
 
-Notes and config for running OpenAI's GPT-5.6 Sol model *inside* Claude Code, alongside normal Claude — plus a one-command switcher between the two.
+Run OpenAI's GPT-5.6 Sol model *inside* Claude Code, alongside normal Claude — switch between the two with one command.
 
 ## Background
 
@@ -8,79 +8,24 @@ Claude Code only talks to Anthropic models out of the box. CLIProxyAPI is a smal
 
 Anthropic doesn't officially support this — it's a community trick (sometimes called "Claudex"), fine for solo experimentation, **not** something to run for a team without your own auth/audit/budget controls on top.
 
-## One-time setup
+## Quick start
 
 ```bash
-# install + start the proxy
-brew install cliproxyapi
-brew services start cliproxyapi
-
-# generate a strong local secret
-openssl rand -hex 32
+./setup.sh
 ```
 
-Edit `$(brew --prefix)/etc/cliproxyapi.conf`:
+This installs and configures CLIProxyAPI, generates and stores a local secret, walks you through the Codex OAuth login, verifies GPT-5.6 Sol is reachable, and installs an `agent` shell function into `~/.zshrc`. Safe to re-run any time — it refreshes the config instead of duplicating it.
 
-```yaml
-host: "127.0.0.1"      # keep it off the network — never expose this port publicly
-port: 8317
-remote-management:
-  allow-remote: false
-api-keys:
-  - "PASTE_YOUR_GENERATED_SECRET_HERE"
-```
+Then `source ~/.zshrc` (or open a new terminal) and:
 
-```bash
-brew services restart cliproxyapi
-cliproxyapi --codex-login          # authorizes the proxy against your OpenAI/Codex account
-
-# sanity check — should list gpt-5.6-sol
-curl -sS http://127.0.0.1:8317/v1/models \
-  -H "Authorization: Bearer PASTE_YOUR_GENERATED_SECRET_HERE"
-```
-
-Credentials from the login live in `~/.cli-proxy-api` — don't commit that directory anywhere.
-
-## Switching between Claude and Codex
-
-Rather than juggling long inline env-var incantations, drop this function in `~/.zshrc`:
-
-```bash
-export CLAUDEX_KEY="PASTE_YOUR_GENERATED_SECRET_HERE"
-
-agent() {
-  case "$1" in
-    gpt|codex)
-      shift
-      ANTHROPIC_BASE_URL=http://127.0.0.1:8317 \
-      ANTHROPIC_AUTH_TOKEN="$CLAUDEX_KEY" \
-      CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-sol \
-      CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=3 \
-      ENABLE_TOOL_SEARCH=auto:5 \
-      claude --model gpt-5.6-sol "$@"
-      ;;
-    claude|"")
-      shift
-      command claude "$@"
-      ;;
-    *)
-      echo "usage: agent [claude|gpt] [claude-code args...]"
-      return 1
-      ;;
-  esac
-}
-```
-
-Then:
-
-- `agent claude` (or plain `claude`) → normal Claude Code, Anthropic models.
+- `agent claude` (or just `claude`) → normal Claude Code, Anthropic models.
 - `agent gpt` → Claude Code driven by GPT-5.6 Sol through the local proxy.
 
-Any extra args pass straight through, e.g. `agent gpt --continue` or `agent claude -p "..."`. For a specific reasoning level with GPT-5.6 Sol, edit the alias to use `--model 'gpt-5.6-sol(high)'` (or `low`/`medium`/`max`).
+Extra args pass straight through either way, e.g. `agent gpt --continue`. For a specific reasoning level, edit the `agent` function in `~/.zshrc` to use `--model 'gpt-5.6-sol(high)'` (or `low`/`medium`/`max`).
 
 ## Troubleshooting
 
-- **401 from the proxy** → `ANTHROPIC_AUTH_TOKEN` doesn't match the `api-keys` entry in `cliproxyapi.conf`.
-- **Unrecognized model** → update CLIProxyAPI and redo `--codex-login`.
-- **400s around tool search** → set `ENABLE_TOOL_SEARCH=false` and retry.
+- **401 from the proxy** → the secret in `~/.claudex_key` doesn't match the `api-keys` entry in CLIProxyAPI's config; re-run `./setup.sh`.
+- **Unrecognized model** → `brew upgrade cliproxyapi` and redo `cliproxyapi --codex-login`.
+- **400s around tool search** → set `ENABLE_TOOL_SEARCH=false` in the `agent gpt` case and retry.
 - **Not sure which backend is active** → run `/status` inside Claude Code.
