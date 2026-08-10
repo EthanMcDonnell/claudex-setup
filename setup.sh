@@ -6,6 +6,7 @@
 # Safe to re-run: re-running just refreshes the config and the ~/.zshrc block.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORT=8317
 ZSHRC="${HOME}/.zshrc"
 KEY_FILE="${HOME}/.claudex_key"
@@ -16,6 +17,7 @@ log() { printf '\n\033[1;34m==>\033[0m %s\n' "$1"; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$1" >&2; exit 1; }
 
 command -v brew >/dev/null 2>&1 || die "Homebrew is required — install it from https://brew.sh first."
+command -v python3 >/dev/null 2>&1 || die "python3 is required (used to patch cliproxyapi.conf in place)."
 
 log "Installing CLIProxyAPI"
 if brew list cliproxyapi >/dev/null 2>&1; then
@@ -40,17 +42,9 @@ else
   chmod 600 "$KEY_FILE"
 fi
 
-log "Writing $CONF_PATH"
+log "Patching $CONF_PATH"
 cp "$CONF_PATH" "${CONF_PATH}.bak.$(date +%s)" 2>/dev/null || true
-cat > "$CONF_PATH" <<EOF
-host: "127.0.0.1"
-port: ${PORT}
-remote-management:
-  allow-remote: false
-  secret-key: ""
-api-keys:
-  - "${SECRET}"
-EOF
+python3 "${SCRIPT_DIR}/scripts/patch_conf.py" "$CONF_PATH" "$PORT" "$SECRET"
 
 log "Restarting CLIProxyAPI so the new config takes effect"
 brew services restart cliproxyapi >/dev/null
