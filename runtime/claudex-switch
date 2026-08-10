@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Request a backend switch for the running Claude Code session.
+#
+# This does not kill anything itself. It writes a marker; the Stop hook fires
+# once Claude has finished its reply (so the transcript is complete and safe to
+# resume) and ends the process, and the supervisor loop in claudex.zsh
+# relaunches on the new backend with --resume.
+#
+# Usage: claudex-switch <target> [effort]
+set -euo pipefail
+
+CLAUDEX_DIR="${CLAUDEX_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+# shellcheck source=claudex-common.sh
+. "$CLAUDEX_DIR/claudex-common.sh"
+
+die() {
+  echo "claudex: $1" >&2
+  exit 1
+}
+
+[ $# -ge 1 ] || die "usage: claudex-switch <gpt|sol|terra|luna|opus|sonnet|claude> [minimal|low|medium|high|max]"
+
+# Refuse if there is no supervisor to catch the exit — otherwise the switch
+# would kill the session and leave the user at a bare shell prompt.
+[ -n "${CLAUDEX_SUPERVISOR:-}" ] ||
+  die "this session was not started by the claudex wrapper, so nothing would relaunch it. Exit and start it with 'claude' (or 'claude --gpt')."
+
+[ -n "${CLAUDE_CODE_SESSION_ID:-}" ] ||
+  die "CLAUDE_CODE_SESSION_ID is not set — cannot identify this session to resume it."
+
+[ -n "${CLAUDE_PID:-}" ] ||
+  die "CLAUDE_PID is not set — cannot identify which process to hand over."
+
+claudex_resolve "$1" "${2:-}" || exit 1
+
+# Named for the supervisor that will act on it, so a switch requested here can
+# never be picked up by another session's loop.
+SWITCH_FILE="$(claudex_switch_file)"
+
+mkdir -p "$CLAUDEX_STATE_DIR"
+umask 077
+rm -f "$SWITCH_FILE"
+cat >"$SWITCH_FILE" <<EOF
+mode=$CLAUDEX_MODE
+model=$CLAUDEX_MODEL
+session=$CLAUDE_CODE_SESSION_ID
+pid=$CLAUDE_PID
+EOF
+
+if [ "$CLAUDEX_MODE" = "anthropic" ]; then
+  echo "queued switch to ${CLAUDEX_MODEL:-Claude (default model)}"
+else
+  echo "queued switch to $CLAUDEX_MODEL via the local proxy"
+fi
+echo "this conversation will reload on the new backend"

@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# claudex-setup: one-shot installer for running GPT-5.6 Sol inside Claude Code
-# via a local CLIProxyAPI gateway, plus an `agent` command to switch between
-# plain Claude Code and the GPT-5.6 Sol backend.
+# claudex-setup: one-shot installer for running GPT models inside Claude Code
+# via a local CLIProxyAPI gateway, plus a `claude` wrapper and a /switch command
+# for moving a live session between backends without losing the conversation.
 #
-# Safe to re-run: re-running just refreshes the config and the ~/.zshrc block.
+# Safe to re-run: re-running just refreshes the config, the symlink, and the
+# ~/.zshrc block. Replaces the older `agent` function if one is still installed.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNTIME_DIR="${SCRIPT_DIR}/runtime"
+COMMANDS_DIR="${HOME}/.claude/commands"
 PORT=8317
 ZSHRC="${HOME}/.zshrc"
 KEY_FILE="${HOME}/.claudex_key"
@@ -50,12 +53,24 @@ log "Restarting CLIProxyAPI so the new config takes effect"
 brew services restart cliproxyapi >/dev/null
 sleep 2
 
-log "Authorizing the proxy against your OpenAI/Codex account"
-echo "(this opens a browser for OAuth — finish the login there, then come back)"
-cliproxyapi --codex-login
+fetch_models() {
+  curl -sS -m 10 "http://127.0.0.1:${PORT}/v1/models" -H "Authorization: Bearer ${SECRET}" 2>/dev/null || true
+}
+
+# Only send the user through a browser OAuth flow if the proxy cannot already
+# serve models. Re-running setup should not cost a fresh login.
+log "Checking whether the proxy is already authorized"
+MODELS_JSON="$(fetch_models)"
+if printf '%s' "$MODELS_JSON" | grep -q '"id"'; then
+  echo "already authorized — skipping the Codex login"
+else
+  echo "no models available yet — starting the OAuth flow"
+  echo "(this opens a browser — finish the login there, then come back)"
+  cliproxyapi --codex-login
+  MODELS_JSON="$(fetch_models)"
+fi
 
 log "Confirming gpt-5.6-sol is reachable through the proxy"
-MODELS_JSON="$(curl -sS "http://127.0.0.1:${PORT}/v1/models" -H "Authorization: Bearer ${SECRET}")"
 if printf '%s' "$MODELS_JSON" | grep -q gpt-5.6-sol; then
   echo "confirmed: gpt-5.6-sol is available"
 else
@@ -74,39 +89,38 @@ except Exception:
   die "gpt-5.6-sol not available — see the model list above (often a plan/subscription tier gate, not a login problem)."
 fi
 
-log "Installing the 'agent' switcher into ${ZSHRC}"
+log "Making the runtime scripts executable"
+chmod +x "${RUNTIME_DIR}/claudex-switch" "${RUNTIME_DIR}/claudex-stop-hook"
+
+log "Linking the /switch command into ${COMMANDS_DIR}"
+mkdir -p "$COMMANDS_DIR"
+ln -sfn "${SCRIPT_DIR}/.claude/commands/switch.md" "${COMMANDS_DIR}/switch.md"
+echo "linked $(basename "${COMMANDS_DIR}")/switch.md -> ${SCRIPT_DIR}/.claude/commands/switch.md"
+
+log "Wiring the claude wrapper into ${ZSHRC}"
 touch "$ZSHRC"
 if grep -qF "$MARK_START" "$ZSHRC"; then
   sed -i.bak "/${MARK_START}/,/${MARK_END}/d" "$ZSHRC"
 fi
 
-cat >> "$ZSHRC" <<'EOF'
-# >>> claudex-setup >>>
-agent() {
-  case "$1" in
-    gpt|codex)
-      shift
-      ANTHROPIC_BASE_URL=http://127.0.0.1:8317 \
-      ANTHROPIC_AUTH_TOKEN="$(cat "$HOME/.claudex_key" 2>/dev/null)" \
-      CLAUDE_CODE_SUBAGENT_MODEL=gpt-5.6-sol \
-      CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=3 \
-      ENABLE_TOOL_SEARCH=auto:5 \
-      claude --model gpt-5.6-sol "$@"
-      ;;
-    claude|"")
-      shift
-      command claude "$@"
-      ;;
-    *)
-      echo "usage: agent [claude|gpt] [claude-code args...]"
-      return 1
-      ;;
-  esac
-}
-# <<< claudex-setup <<<
+# The repo is the source of truth: ~/.zshrc points at it rather than holding a
+# copy, so editing runtime/ takes effect in the next shell with no re-install.
+cat >> "$ZSHRC" <<EOF
+${MARK_START}
+export CLAUDEX_DIR="${RUNTIME_DIR}"
+export PATH="\${CLAUDEX_DIR}:\${PATH}"
+source "\${CLAUDEX_DIR}/claudex.zsh"
+${MARK_END}
 EOF
 
 log "Done"
 echo "Run 'source ~/.zshrc' (or open a new terminal), then:"
-echo "  agent claude   -> normal Claude Code"
-echo "  agent gpt      -> Claude Code driven by GPT-5.6 Sol"
+echo "  claude                -> normal Claude Code, straight to Anthropic"
+echo "  claude --gpt          -> Claude Code driven by gpt-5.6-sol"
+echo "  claude --gpt=terra    -> a specific proxy model"
+echo "  claude --gpt=sol:high -> ...with a reasoning effort"
+echo
+echo "Mid-session, switch without losing the conversation:"
+echo "  /switch terra"
+echo "  /switch sol high"
+echo "  /switch claude"

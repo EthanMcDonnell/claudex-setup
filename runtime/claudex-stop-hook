@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Stop hook: hands the session over when a switch has been requested.
+#
+# Injected per-launch by claudex.zsh via `claude --settings`, never written
+# into ~/.claude/settings.json — so it exists only in sessions started by the
+# wrapper, and merges alongside any hooks already configured globally.
+#
+# Design rules, same as any well-behaved hook:
+#   * Exits 0 unconditionally. A non-zero hook can disrupt the session.
+#   * Writes nothing to stdout — hook stdout can be fed back to Claude.
+#   * Does nothing at all unless a marker for *this* session exists, so it is
+#     a file-existence check on every other turn.
+set -u
+
+CLAUDEX_STATE_DIR="${CLAUDEX_STATE_DIR:-$HOME/.claudex}"
+
+# No supervisor means no loop to relaunch us, so there is nothing to hand over.
+[ -n "${CLAUDEX_SUPERVISOR:-}" ] || exit 0
+SWITCH_FILE="$CLAUDEX_STATE_DIR/switch-$CLAUDEX_SUPERVISOR"
+
+[ -f "$SWITCH_FILE" ] || exit 0
+
+payload="$(cat 2>/dev/null || true)"
+session="$(printf '%s' "$payload" | python3 -c '
+import json, sys
+try:
+    print(json.load(sys.stdin).get("session_id", ""))
+except Exception:
+    print("")
+' 2>/dev/null)"
+
+marker_session=""
+marker_pid=""
+while IFS='=' read -r k v; do
+  case "$k" in
+    session) marker_session="$v" ;;
+    pid) marker_pid="$v" ;;
+  esac
+done <"$SWITCH_FILE"
+
+# Only ever act on a marker written by the session we are running inside.
+# A stale or foreign marker must never take down an unrelated session.
+[ -n "$marker_session" ] || exit 0
+[ -n "$marker_pid" ] || exit 0
+[ "$marker_session" = "$session" ] || exit 0
+
+# SIGTERM, not SIGKILL: let Claude Code flush the transcript and shut down
+# cleanly so --resume picks up a complete conversation. The supervisor loop
+# consumes and removes the marker once the process exits.
+kill "$marker_pid" 2>/dev/null || true
+exit 0
