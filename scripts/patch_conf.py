@@ -79,6 +79,13 @@ def patch(lines: list[str], port: str, secret: str) -> list[str]:
             out.append(line)
             seen["api-keys"] = True
             i += 1
+            # Split the section into real list entries and everything else
+            # (blank lines, comments). A comment right after the last entry
+            # usually documents the *next* key (e.g. "# Enable debug logging"
+            # above `debug:`), not this list, so it needs to stay trailing
+            # after whatever we add here rather than swallow our entry.
+            kept_items = []
+            trailing = []
             has_secret = False
             while i < n and not is_top_level(lines[i]):
                 sub = lines[i]
@@ -87,12 +94,17 @@ def patch(lines: list[str], port: str, secret: str) -> list[str]:
                     # their mere presence makes the proxy refuse to serve at all.
                     i += 1
                     continue
-                if secret in sub:
-                    has_secret = True
-                out.append(sub)
+                if re.match(r"^\s*-", sub):
+                    if secret in sub:
+                        has_secret = True
+                    kept_items.append(sub)
+                else:
+                    trailing.append(sub)
                 i += 1
+            out.extend(kept_items)
             if not has_secret:
                 out.append(f'  - "{secret}"\n')
+            out.extend(trailing)
             continue
 
         out.append(line)
