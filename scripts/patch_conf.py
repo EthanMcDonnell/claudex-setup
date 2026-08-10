@@ -20,6 +20,12 @@ from __future__ import annotations
 import re
 import sys
 
+# CLIProxyAPI seeds a freshly generated config with these example keys. Their
+# mere presence in api-keys trips the proxy's own "unsafe_example_api_key"
+# check and disables the endpoints entirely, so they must be stripped, not
+# just left alongside the real secret.
+PLACEHOLDER_KEY_RE = re.compile(r'^\s*-\s*["\']?your-api-key-\d+["\']?\s*$')
+
 
 def is_top_level(line: str) -> bool:
     return bool(re.match(r"^\S", line)) and ":" in line
@@ -76,6 +82,11 @@ def patch(lines: list[str], port: str, secret: str) -> list[str]:
             has_secret = False
             while i < n and not is_top_level(lines[i]):
                 sub = lines[i]
+                if PLACEHOLDER_KEY_RE.match(sub):
+                    # Drop CLIProxyAPI's example entries (your-api-key-1, etc.):
+                    # their mere presence makes the proxy refuse to serve at all.
+                    i += 1
+                    continue
                 if secret in sub:
                     has_secret = True
                 out.append(sub)

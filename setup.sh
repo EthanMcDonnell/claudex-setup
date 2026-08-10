@@ -55,10 +55,23 @@ echo "(this opens a browser for OAuth — finish the login there, then come back
 cliproxyapi --codex-login
 
 log "Confirming gpt-5.6-sol is reachable through the proxy"
-if curl -sS "http://127.0.0.1:${PORT}/v1/models" -H "Authorization: Bearer ${SECRET}" | grep -q gpt-5.6-sol; then
+MODELS_JSON="$(curl -sS "http://127.0.0.1:${PORT}/v1/models" -H "Authorization: Bearer ${SECRET}")"
+if printf '%s' "$MODELS_JSON" | grep -q gpt-5.6-sol; then
   echo "confirmed: gpt-5.6-sol is available"
 else
-  die "gpt-5.6-sol not found in the proxy's model list — re-check the codex-login step above."
+  echo "gpt-5.6-sol not found. Models currently available to this account:"
+  MODELS_JSON="$MODELS_JSON" python3 -c '
+import json, os
+raw = os.environ.get("MODELS_JSON", "")
+try:
+    data = json.loads(raw)
+    for m in data.get("data", []):
+        print("  -", m.get("id"))
+except Exception:
+    print("  (could not parse proxy response)")
+    print(" ", raw)
+'
+  die "gpt-5.6-sol not available — see the model list above (often a plan/subscription tier gate, not a login problem)."
 fi
 
 log "Installing the 'agent' switcher into ${ZSHRC}"
