@@ -9,8 +9,8 @@ Claude Code only talks to Anthropic models out of the box. CLIProxyAPI is a smal
 local proxy that speaks the Anthropic API on one side and forwards to OpenAI (via
 your Codex login) on the other. Point Claude Code's `ANTHROPIC_BASE_URL` at that
 local proxy instead of Anthropic's servers, and Claude Code will happily drive
-GPT-5.6 Sol (1M+ token context, up to 128K output, adjustable reasoning effort) as
-if it were a Claude model. Same tool use, same subagents, same UI.
+GPT-5.6 Sol (272K token context, adjustable reasoning effort) as if it were a
+Claude model. Same tool use, same subagents, same UI.
 
 Anthropic doesn't officially support this. It's a community trick (sometimes
 called "Claudex"), fine for solo experimentation, **not** something to run for a
@@ -91,6 +91,50 @@ script is untouched.
 
 `claudex-switch` refuses to run if the session wasn't started by the wrapper,
 since there would be no loop to catch the exit.
+
+## Context window
+
+Every model the proxy currently serves has the same window. Measured by running
+`codex -m <model>`, sending a prompt, then `/status`:
+
+| Model | Raw window | Usable |
+| --- | --- | --- |
+| gpt-5.6-sol | 272,000 | 258,000 |
+| gpt-5.6-terra | 272,000 | 258,000 |
+| gpt-5.6-luna | 272,000 | 258,000 |
+| gpt-5.5 | 272,000 | 258,000 |
+
+Reasoning effort does not change it — the window is a property of the model, so
+`sol:high` and `sol:low` get the same 258K. `gpt-5.4` and `gpt-5.4-mini` are
+deprecated aliases that resolve to terra and luna, and inherit their windows.
+
+The 14K gap is a 5% reserve Codex holds back; `/status` reports only the usable
+figure. `codex --version` 0.147.0 caches all of this in
+`~/.codex/models_cache.json`, which is where the raw numbers above come from.
+
+Claude Code has no table entry for a `gpt-*` model name, so left alone it assumes
+**200,000** tokens and auto-compacts there, ~23% early. The wrapper therefore
+exports `CLAUDE_CODE_MAX_CONTEXT_TOKENS` (see `CLAUDEX_CONTEXT_TOKENS` in
+`runtime/claudex-common.sh`, default 258000). That variable applies only to model
+names that do not start with `claude-`, so it cannot affect the Anthropic side;
+the wrapper unsets it there anyway.
+
+Set `CLAUDEX_CONTEXT_TOKENS` in your environment to override, and re-measure with
+`/status` when new models show up.
+
+### Why not CLIProxyAPI's own setting
+
+CLIProxyAPI has a `max-context-length` key, and it looks like the right knob. It
+isn't, for two reasons:
+
+- It rewrites the model catalog served to **Codex** clients. Claude Code speaks
+  the Anthropic protocol and never fetches a catalog, so it never sees the value.
+- It lives under a credential's `models:` list, which exists only for API-key
+  providers (`codex-api-key`, `openai-compatibility`, and friends). This setup
+  authenticates with Codex OAuth, whose auth files hold tokens and nothing else,
+  so there is no `models:` list to put it in.
+
+Both sides of that are worth knowing before reaching for the config again.
 
 ## Layout
 

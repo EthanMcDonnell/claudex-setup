@@ -43,6 +43,7 @@ _claudex_launch() {
       "ANTHROPIC_BASE_URL=$CLAUDEX_BASE_URL" \
       "ANTHROPIC_AUTH_TOKEN=$(claudex_key)" \
       "CLAUDE_CODE_SUBAGENT_MODEL=$CLAUDEX_MODEL" \
+      "CLAUDE_CODE_MAX_CONTEXT_TOKENS=$CLAUDEX_CONTEXT_TOKENS" \
       CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=3 \
       ENABLE_TOOL_SEARCH=auto:5 \
       claude "${model_args[@]}" "${settings_args[@]}" "$@"
@@ -53,6 +54,7 @@ _claudex_launch() {
       -u ANTHROPIC_BASE_URL \
       -u ANTHROPIC_AUTH_TOKEN \
       -u CLAUDE_CODE_SUBAGENT_MODEL \
+      -u CLAUDE_CODE_MAX_CONTEXT_TOKENS \
       -u ENABLE_TOOL_SEARCH \
       -u CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY \
       "${supervisor_args[@]}" \

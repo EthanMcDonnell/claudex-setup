@@ -11,6 +11,25 @@ CLAUDEX_BASE_URL="http://127.0.0.1:${CLAUDEX_PORT}"
 CLAUDEX_KEY_FILE="${CLAUDEX_KEY_FILE:-$HOME/.claudex_key}"
 CLAUDEX_STATE_DIR="${CLAUDEX_STATE_DIR:-$HOME/.claudex}"
 
+# Context window Claude Code should assume for a model served by the proxy.
+#
+# Claude Code has no table entry for a `gpt-*` model name, so it falls back to a
+# hardcoded 200000 and auto-compacts there — well short of what these models
+# accept. CLAUDE_CODE_MAX_CONTEXT_TOKENS overrides that fallback, and it applies
+# only to models whose name does not start with "claude-", which is exactly the
+# proxy case: the Anthropic side is unaffected even if the variable leaks.
+#
+# 258000 is what Codex itself reports in its own /status for every model the
+# proxy currently serves (gpt-5.6-sol, -terra, -luna and gpt-5.5 alike): a
+# 272000-token window with 5% held back. Matching Codex's effective figure
+# rather than the raw one keeps that same margin for the reply.
+#
+# Verify with `codex -m <model>`, send any prompt, then run /status; the
+# "Context window" line prints the usable figure. Note that CLIProxyAPI's own
+# `max-context-length` setting does not help here — it rewrites the model
+# catalog served to *Codex* clients, which Claude Code never reads.
+CLAUDEX_CONTEXT_TOKENS="${CLAUDEX_CONTEXT_TOKENS:-258000}"
+
 claudex_key() { cat "$CLAUDEX_KEY_FILE" 2>/dev/null; }
 
 # Path to the switch marker for one supervisor loop.

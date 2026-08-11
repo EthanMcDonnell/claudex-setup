@@ -89,6 +89,13 @@ except Exception:
   die "gpt-5.6-sol not available — see the model list above (often a plan/subscription tier gate, not a login problem)."
 fi
 
+# Sourced rather than hardcoded so this figure and the one the wrapper actually
+# exports can never drift apart.
+. "${RUNTIME_DIR}/claudex-common.sh"
+log "Context window Claude Code will assume for proxy models"
+echo "${CLAUDEX_CONTEXT_TOKENS} tokens — without this it would assume 200000 for any gpt-* name"
+echo "to re-measure: run 'codex -m gpt-5.6-sol', send any prompt, then /status"
+
 log "Making the runtime scripts executable"
 chmod +x "${RUNTIME_DIR}/claudex-switch" "${RUNTIME_DIR}/claudex-stop-hook"
 
